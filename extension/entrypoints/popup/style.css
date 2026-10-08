@@ -1,0 +1,8 @@
+/* Loads Tailwind. After this, class names like "p-4" or "text-sm"
+   in the .jsx files style the popup. */
+@import "tailwindcss";
+
+body {
+  width: 340px;
+  margin: 0;
+}

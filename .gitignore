@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build output (WXT and Next.js)
+.output/
+.wxt/
+.next/
+out/
+
+# Secrets and local settings
+.env*
+
+# Editor and system files
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# Written by `next dev` (agent instructions), not part of the project
+website/AGENTS.md
