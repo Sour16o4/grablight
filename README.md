@@ -11,7 +11,7 @@ Before you click, every file gets a light: green means it will download, yellow 
 
 ## Run it locally
 
-Requires Node.js 18 or newer.
+Requires Node.js 20 or newer and Chrome 116 or newer.
 
 ```bash
 cd extension
@@ -19,7 +19,7 @@ npm install
 npm run dev
 ```
 
-`npm run dev` opens a separate Chrome window with Grablight already loaded. Edit any file and the extension reloads on its own.
+`npm run dev` starts a dev server on port 3000 (it only feeds live reloads to the extension and has no page of its own) and opens a separate Chrome window with Grablight loaded, if it can find Chrome. Otherwise load `extension/.output/chrome-mv3-dev` as an unpacked extension (steps below). Edit any file and the extension reloads on its own.
 
 To load it in your normal Chrome instead:
 
@@ -27,7 +27,31 @@ To load it in your normal Chrome instead:
 npm run build
 ```
 
-Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick `extension/.output/chrome-mv3`.
+Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick `extension/.output/chrome-mv3`. The folder starts with a dot: press Ctrl+H in the file picker to see it, or paste the path with Ctrl+L.
+
+## What it does
+
+- Finds files, images, audio and video on the page, plus videos the page never lists (by watching network responses).
+- Gives each one a light with the reason. Checks the file's headers and, for streams, the playlist.
+- Popup tabs: **Files**, **Downloads** (live progress, pause, stop, show, delete) and **History**.
+- A Download button over any video you hover. Turn it off in Settings.
+- HLS video streams (`.m3u8`), including AES-128 encryption, are joined into one `.ts` (or `.mp4`) file.
+- Settings: hide the video button, add sites to never take video or audio from.
+
+## What it refuses or can't do
+
+- Video and audio from YouTube, Netflix, Prime Video, Disney+, Hotstar and Spotify (edit `BLOCKED` in `extension/utils/light.js`).
+- DRM-protected streams, live streams, DASH (`.mpd`) and byte-range playlists.
+- Streams are saved as the raw joined pieces, with no conversion to a clean `.mp4`, and are held in memory (limit 1.5 GB). Streams with a separate audio track give video only.
+
+## Checks
+
+```bash
+cd extension
+node utils/light.test.js && node utils/hls.test.js && node utils/scan.test.js
+```
+
+These cover the light rules, HLS parsing, decryption, stopping and retries, and the page scanner. The popup, the on-video button and the settings page have no automated tests: try them in Chrome.
 
 ## Status
 
