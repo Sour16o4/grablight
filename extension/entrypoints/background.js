@@ -17,8 +17,14 @@ const BADGE_COLOR = { green: '#059669', yellow: '#d97706', red: '#dc2626' };
 const pageOf = new Map();
 
 // Files per tab live in storage.session: the service worker can be shut down at any time.
-// ponytail: read-modify-write without a lock; two requests landing in the same instant
-// can drop one. Fine for a list that is rebuilt on every analyze.
+// Every read-then-write of a list goes through `locked`, one at a time: a page that requests
+// several playlists at once would otherwise have its updates overwrite each other.
+let listLock = Promise.resolve();
+const locked = (fn) => {
+  const run = listLock.then(fn, fn);
+  listLock = run.catch(() => {});
+  return run;
+};
 const key = (id) => `t${id}`;
 const load = async (id) => (await browser.storage.session.get(key(id)))[key(id)] || {};
 const save = (id, files) => browser.storage.session.set({ [key(id)]: files });
@@ -81,7 +87,12 @@ async function analyze(tabId) {
   const todo = Object.values(files);
   for (let i = 0; i < todo.length; i += 6) await Promise.all(todo.slice(i, i + 6).map(inspect));
   if (pageOf.get(tabId) !== pageThen) return []; // navigated away meanwhile: this result is stale
-  return finish(tabId, files);
+  return locked(async () => {
+    // The sniffer may have added files while we were checking headers: keep them.
+    const current = await load(tabId);
+    for (const f of Object.values(files)) current[f.url] = { ...current[f.url], ...f };
+    return finish(tabId, current);
+  });
 }
 
 // Which file belongs to a <video>? Exact match on its src if the page gave a real URL;
@@ -160,8 +171,10 @@ async function dropOrphanJobs() {
 // Re-colour every tab's files, e.g. after the blocked-sites setting changed.
 async function refreshAllTabs() {
   for (const tab of await browser.tabs.query({})) {
-    const files = await load(tab.id);
-    if (Object.keys(files).length) await finish(tab.id, files);
+    await locked(async () => {
+      const files = await load(tab.id);
+      if (Object.keys(files).length) await finish(tab.id, files);
+    });
   }
 }
 
@@ -204,9 +217,11 @@ export default defineBackground(() => {
       const pageThen = pageOf.get(d.tabId);
       if (isManifest) await inspect(f); // network call, so reload the list afterwards
       if (pageOf.get(d.tabId) !== pageThen) return; // navigated away while checking
-      const files = await load(d.tabId);
-      files[u.href] ||= f;
-      await finish(d.tabId, files);
+      await locked(async () => {
+        const files = await load(d.tabId);
+        files[u.href] ||= f;
+        await finish(d.tabId, files);
+      });
     },
     { urls: ['<all_urls>'] },
     ['responseHeaders'],
@@ -219,7 +234,7 @@ export default defineBackground(() => {
       const page = change.url.split('#')[0];
       if (pageOf.get(tabId) !== page) {
         pageOf.set(tabId, page);
-        await finish(tabId, {});
+        await locked(() => finish(tabId, {}));
       }
     }
     if (change.status === 'complete') analyze(tabId);
@@ -240,7 +255,7 @@ export default defineBackground(() => {
           () => ({ ok: true }),
           (e) => ({ ok: false, error: e.message }),
         )
-        .finally(async () => finish(tabId, await load(tabId))); // put the normal badge back
+        .finally(() => locked(async () => finish(tabId, await load(tabId)))); // put the normal badge back
     }
     if (msg?.type === 'cancel-job') {
       return browser.runtime.sendMessage({ type: 'hls-cancel', jobId: msg.jobId }).catch(() => {});
