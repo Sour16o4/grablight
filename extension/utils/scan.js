@@ -11,7 +11,9 @@ export function scanPage() {
   };
 
   const found = new Map(); // url -> file, so duplicates collapse
-  const add = (src, kind) => {
+  // probe: true for things found as links. A link ending in .jpg can be a web page, so those get
+  // their headers checked; real <img>/video elements are known to be media.
+  const add = (src, kind, probe) => {
     if (!src) return;
     let url;
     try {
@@ -28,13 +30,13 @@ export function scanPage() {
     const ext = (name.match(/\.(\w+)$/) || [])[1]?.toLowerCase() || '';
     if (!kind) kind = Object.keys(KINDS).find((k) => KINDS[k].test(ext)) || 'file';
     if (/^(m3u8|mpd)$/.test(ext)) kind = 'manifest'; // a stream playlist, not a video file
-    found.set(url.href, { url: url.href, name, ext, kind });
+    found.set(url.href, { url: url.href, name, ext, kind, ...(probe && { probe: true }) });
   };
 
   // Links only count when they point at a known file type.
   document.querySelectorAll('a[href]').forEach((a) => {
     try {
-      if (FILE_EXT.test(new URL(a.href).pathname)) add(a.href);
+      if (FILE_EXT.test(new URL(a.href).pathname)) add(a.href, undefined, true);
     } catch {}
   });
   // Media elements are files by definition.
@@ -93,19 +95,19 @@ export function scanPage() {
   });
 
   // A link marked download is a file whatever its URL looks like.
-  document.querySelectorAll('a[download][href]').forEach((a) => add(a.href));
+  document.querySelectorAll('a[download][href]').forEach((a) => add(a.href, undefined, true));
 
   // Site adapters: add one object per site that needs its own rule.
   const ADAPTERS = [
     {
       // Wikipedia / Wikimedia Commons: the file page links the original upload.
       host: /(^|\.)(wikipedia|wikimedia)\.org$/,
-      run: () => document.querySelectorAll('.fullMedia a[href]').forEach((a) => add(a.href)),
+      run: () => document.querySelectorAll('.fullMedia a[href]').forEach((a) => add(a.href, undefined, true)),
     },
     {
       // GitHub: release downloads often have no file extension (e.g. a bare Linux binary).
       host: /(^|\.)github\.com$/,
-      run: () => document.querySelectorAll('a[href*="/releases/download/"]').forEach((a) => add(a.href, 'file')),
+      run: () => document.querySelectorAll('a[href*="/releases/download/"]').forEach((a) => add(a.href, 'file', true)),
     },
   ];
   ADAPTERS.filter((a) => a.host.test(location.hostname)).forEach((a) => a.run());

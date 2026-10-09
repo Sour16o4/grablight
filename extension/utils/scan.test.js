@@ -48,6 +48,16 @@ r = scan('https://site.test/', '<a href="/100%.pdf">bad</a><a href="/fine.pdf">o
 assert.equal(r['https://site.test/fine.pdf'], 'file');
 assert.equal(r['https://site.test/100%.pdf'], 'file');
 
+// Links are probed (a link ending in .jpg may be a web page); real <img> elements are not
+{
+  const { window } = new JSDOM('<a href="/wiki/File:X.jpg">page</a><img src="/real.jpg">', { url: 'https://site.test/' });
+  globalThis.document = window.document;
+  globalThis.location = window.location;
+  const byUrl = Object.fromEntries(scanPage().map((f) => [f.url, f]));
+  assert.equal(byUrl['https://site.test/wiki/File:X.jpg'].probe, true);
+  assert.equal(byUrl['https://site.test/real.jpg'].probe, undefined);
+}
+
 // Site adapters only run on their own site
 const gh = '<a href="/o/r/releases/download/v1/tool-linux">bin</a>';
 assert.equal(scan('https://github.com/o/r/releases', gh)['https://github.com/o/r/releases/download/v1/tool-linux'], 'file');

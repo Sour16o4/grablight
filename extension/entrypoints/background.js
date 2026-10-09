@@ -30,8 +30,8 @@ const load = async (id) => (await browser.storage.session.get(key(id)))[key(id)]
 const save = (id, files) => browser.storage.session.set({ [key(id)]: files });
 
 async function inspect(f) {
-  if (f.status === undefined && f.kind === 'image') {
-    // ponytail: images are assumed fine. Probing every image on every page you open would
+  if (f.status === undefined && f.kind === 'image' && !f.probe) {
+    // ponytail: images are assumed fine (links to images are still checked: they can be web pages). Probing every image on every page you open would
     // mean hundreds of extra requests per page; a broken image just fails when downloaded.
     f.status = 200;
   } else if (f.status === undefined) {
