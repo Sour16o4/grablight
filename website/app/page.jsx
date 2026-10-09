@@ -147,7 +147,10 @@ export default function Page() {
           </p>
           <ol className="mt-6 max-w-xl list-decimal space-y-4 pl-5 leading-relaxed">
             <li>
-              In the project’s <code>extension</code> folder, run <code>npm install</code>, then <code>npm run build</code>.
+              Get the code: <code>git clone https://github.com/Sour16o4/grablight.git</code>
+            </li>
+            <li>
+              In the <code>extension</code> folder, run <code>npm install</code>, then <code>npm run build</code>.
             </li>
             <li>
               Open <code>chrome://extensions</code> and turn on <strong>Developer mode</strong>.

@@ -29,6 +29,14 @@ npm run build
 
 Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick `extension/.output/chrome-mv3`. The folder starts with a dot: press Ctrl+H in the file picker to see it, or paste the path with Ctrl+L.
 
+## Put the website online (Vercel)
+
+1. Push this repo to GitHub, then on vercel.com choose **Add New → Project** and import it.
+2. Set **Root Directory** to `website`. Vercel detects Next.js by itself; leave the build settings alone.
+3. Click **Deploy**. Every later `git push` to `main` redeploys the site.
+
+The install steps on the site tell visitors to `git clone` this repo, so make the repository public before sharing the link.
+
 ## What it does
 
 - Finds files, images, audio and video on the page, plus videos the page never lists (by watching network responses).
