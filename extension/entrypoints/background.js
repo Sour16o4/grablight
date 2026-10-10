@@ -259,7 +259,11 @@ export default defineBackground(() => {
         await locked(() => finish(tabId, {}));
       }
     }
-    if (change.status === 'complete') analyze(tabId);
+    if (change.status === 'complete') {
+      analyze(tabId);
+      // Many pages fill in their file lists after loading (GitHub releases, infinite lists): look again once.
+      setTimeout(() => analyze(tabId), 3000);
+    }
   });
   browser.downloads.onChanged.addListener((d) => {
     const jobId = doneWith.get(d.id);
