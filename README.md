@@ -45,23 +45,25 @@ The install steps on the site tell visitors to `git clone` this repo, so make th
 - A Download button over any video or large image you hover, with its light. If the page doesn't say which file a video plays (e.g. `blob:` players) and several are found, the light is yellow, not green. Turn it off in Settings.
 - Hovering the toolbar icon lists what was found, e.g. "3 images, 1 video".
 - Streams with several qualities open a quality picker in the popup, with an estimated size per quality. Choose a default in Settings.
-- HLS video streams (`.m3u8`), including AES-128 encryption, are joined into one `.ts` (or `.mp4`) file.
-- Settings: hide the video button, add sites to never take video or audio from.
+- HLS video streams (`.m3u8`), including AES-128 encryption, are joined into one `.ts` (or `.mp4`) file. When the sound is a separate track (TS or bare `.aac` pieces) it is joined into the video; if it can't be, the row turns amber and the download says it has no sound.
+- Playlists named `master.m3u8` show their folder (`show-2/master.m3u8`) so several in one list can be told apart.
+- Settings: hide the video button, default stream quality, sites to never take video or audio from.
+- Design: `extension/DESIGN.md` describes the dark popup and settings look; the colours and fonts live in `extension/utils/theme.css`.
 
 ## What it refuses or can't do
 
 - Video and audio from YouTube, Netflix, Prime Video, Disney+, Hotstar and Spotify (edit `BLOCKED` in `extension/utils/light.js`).
 - DRM-protected streams, live streams, DASH (`.mpd`) and byte-range playlists.
-- Streams are saved as the raw joined pieces, with no conversion to a clean `.mp4`, and are held in memory (limit 1.5 GB). Streams with a separate audio track give video only.
+- Streams are saved as the raw joined pieces, with no conversion to a clean `.mp4`, and are held in memory (limit 1.5 GB). Streams whose separate sound track is fMP4, packed MP3 or AC-3 are saved without sound (the popup says so).
 
 ## Checks
 
 ```bash
 cd extension
-node utils/light.test.js && node utils/hls.test.js && node utils/scan.test.js
+for t in utils/*.test.js; do node $t; done
 ```
 
-These cover the light rules, HLS parsing, decryption, stopping and retries, and the page scanner. The popup, the on-video button and the settings page have no automated tests: try them in Chrome.
+These cover the light rules, HLS parsing, decryption, stopping and retries, joining sound into video, and the page scanner. They use `console.assert`, which prints a message on failure but does not stop the run, so read the output. The popup, the on-video button and the settings page have no automated tests: try them in Chrome.
 
 ## Status
 
