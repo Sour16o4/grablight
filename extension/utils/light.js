@@ -46,6 +46,7 @@ export function light(f, pageUrl = '', extraBlocked = []) {
     if (f.live) return red("Live streams can't be downloaded");
     if (f.unsupported) return red(`Not supported yet: ${f.unsupported}`);
     if (!f.hlsChecked) return yellow("Couldn't read the playlist");
+    if (f.audio === 'lost') return yellow('Video only: the sound is a separate track that cannot be joined');
     return { color: 'green', reason: 'Video stream: pieces are joined into one file' };
   }
   if (/text\/html/i.test(f.contentType || '')) return red('This is a web page, not a file');

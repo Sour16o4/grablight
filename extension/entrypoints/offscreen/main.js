@@ -22,7 +22,7 @@ browser.runtime.onMessage.addListener((msg, _sender, reply) => {
     undefined, // memory limit: the default
     msg.variantUrl,
   )
-    .then(({ blob, ext }) => reply({ ok: true, url: URL.createObjectURL(blob), ext }))
+    .then(({ blob, ext, note }) => reply({ ok: true, url: URL.createObjectURL(blob), ext, note }))
     .catch((e) => reply({ ok: false, error: ctl.signal.aborted ? 'Stopped' : e.message }))
     .finally(() => running.delete(msg.jobId));
   return true; // we answer later

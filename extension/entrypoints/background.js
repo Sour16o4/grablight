@@ -137,6 +137,7 @@ const setJob = (id, patch) =>
 
 // variantUrl: the stream quality picked in the popup. Otherwise the setting decides.
 async function downloadFile(tabId, f, variantUrl) {
+  let note = ''; // something the person should know about the file, e.g. it has no sound
   const tab = await browser.tabs.get(tabId).catch(() => null);
   let name = f.name;
   if (f.kind !== 'manifest') {
@@ -158,12 +159,14 @@ async function downloadFile(tabId, f, variantUrl) {
       const r = await browser.runtime.sendMessage({ type: 'hls-run', jobId, url: f.url, variantUrl, tabId });
       if (!r?.ok) throw new Error(r?.error || 'Download failed');
       name = `${title}.${r.ext}`;
+      note = r.note || '';
       await browser.downloads.download({ url: r.url, filename: name });
     } finally {
       await setJob(jobId, null);
     }
   }
   await addHistory({ name, url: f.url, page: tab?.url || '', kind: f.kind, time: Date.now() });
+  return note;
 }
 
 // This runs each time the background worker starts. A stream job still listed now belonged to a
@@ -260,7 +263,7 @@ export default defineBackground(() => {
       const tabId = msg.tabId ?? sender.tab?.id;
       return downloadFile(tabId, msg.file, msg.variantUrl)
         .then(
-          () => ({ ok: true }),
+          (note) => ({ ok: true, note }),
           (e) => ({ ok: false, error: e.message }),
         )
         .finally(() => locked(async () => finish(tabId, await load(tabId)))); // put the normal badge back

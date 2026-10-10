@@ -7,7 +7,10 @@
 //   DRM (SAMPLE-AES, Widevine, FairPlay), live streams, byte-range playlists.
 // ponytail: output is the raw joined pieces (.ts, or .mp4 for fMP4 streams), no remuxing;
 // players like VLC and mpv open it, upgrade to a remuxer if people need a clean .mp4.
-// ponytail: master playlists with separate audio tracks give video only (best-quality variant).
+// A separate sound track (EXT-X-MEDIA TYPE=AUDIO) is fetched too and joined into the .ts by ts.js.
+// If it can't be joined (fMP4, unknown format) the file is saved without sound and the result says so.
+
+import { mergeTs } from './ts.js';
 
 const attrs = (s) =>
   Object.fromEntries(
@@ -18,7 +21,7 @@ export function parsePlaylist(text, base) {
   const lines = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   if (lines[0] !== '#EXTM3U') throw new Error('Not an HLS playlist');
   const abs = (u) => new URL(u, base).href;
-  const out = { url: base, variants: [], segments: [], init: null, drm: false, live: true, unsupported: '', duration: 0 };
+  const out = { url: base, variants: [], audios: [], segments: [], init: null, drm: false, live: true, unsupported: '', duration: 0 };
   let seq = 0;
   let key = null;
   let variant = null; // set by STREAM-INF, consumed by the URI line after it
@@ -29,7 +32,11 @@ export function parsePlaylist(text, base) {
       const a = attrs(line.slice(18));
       const [w, h] = (a.RESOLUTION || '').split('x').map(Number);
       // Average bitrate is closer to the real size than the peak one, when the playlist gives it.
-      variant = { bandwidth: Number(a['AVERAGE-BANDWIDTH']) || Number(a.BANDWIDTH) || 0, resolution: h ? [w, h] : null, codecs: a.CODECS || '' };
+      variant = { bandwidth: Number(a['AVERAGE-BANDWIDTH']) || Number(a.BANDWIDTH) || 0, resolution: h ? [w, h] : null, codecs: a.CODECS || '', audio: a.AUDIO || '' };
+    }
+    else if (line.startsWith('#EXT-X-MEDIA:')) {
+      const a = attrs(line.slice(13));
+      if (a.TYPE === 'AUDIO' && a.URI) out.audios.push({ group: a['GROUP-ID'], url: abs(a.URI), default: a.DEFAULT === 'YES' });
     }
     else if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) seq = Number(line.split(':')[1]) || 0;
     else if (line.startsWith('#EXT-X-KEY:')) {
@@ -76,7 +83,7 @@ export async function loadMedia(url, signal, depth = 0) {
   let err;
   for (const v of [...p.variants].sort((x, y) => y.bandwidth - x.bandwidth)) {
     try {
-      return { ...(await loadMedia(v.url, signal, depth + 1)), variants: p.variants };
+      return { ...(await loadMedia(v.url, signal, depth + 1)), variants: p.variants, audios: p.audios, chosen: v.url };
     } catch (e) {
       if (signal?.aborted) throw e;
       err = e; // this quality is broken: try the next one
@@ -114,11 +121,35 @@ export function pickQuality(qualities, pref = 'best') {
   return within[0] || pool[pool.length - 1]; // nothing that small: the smallest there is
 }
 
+// The separate sound track that goes with a chosen quality, if the stream has one.
+// master: a parsed master playlist (its variants and audios); chosen: the quality's playlist url.
+// -> { track: the audio media playlist, or null, why: what stops us joining it ('' when nothing does) }
+async function audioPlan(master, chosen, video, signal) {
+  const group = master.variants?.find((v) => v.url === chosen)?.audio;
+  const options = group ? master.audios.filter((a) => a.group === group) : [];
+  const pick = options.find((a) => a.default) || options[0];
+  if (!pick) return { track: null, why: '' };
+  if (video.init) return { track: null, why: 'the sound is a separate track in a format that cannot be joined' };
+  try {
+    const track = await loadMedia(pick.url, signal);
+    if (track.init || track.drm || track.live || track.unsupported || !track.segments.length) {
+      return { track: null, why: 'the sound is a separate track in a format that cannot be joined' };
+    }
+    return { track, why: '' };
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    return { track: null, why: "the sound track couldn't be read" };
+  }
+}
+
 // What the light needs to know about a stream, without downloading it.
+// audio: 'inline' (sound is in the video), 'separate' (a second track, joined when downloading),
+// 'lost' (a second track that can't be joined: the download would be silent).
 export async function hlsInfo(url) {
   const media = await loadMedia(url);
   const { drm, live, unsupported } = media;
-  return { hlsChecked: true, drm, live, unsupported, qualities: qualitiesOf(media) };
+  const { track, why } = await audioPlan(media, media.chosen, media);
+  return { hlsChecked: true, drm, live, unsupported, qualities: qualitiesOf(media), audio: track ? 'separate' : why ? 'lost' : 'inline' };
 }
 
 // AES-128 IV: the playlist's explicit IV, or the segment's sequence number as 16 big-endian bytes.
@@ -137,6 +168,11 @@ export function ivFor(segment) {
 // variantUrl: the quality the user chose. Without it, the best quality that fits in memory.
 export async function downloadHls(url, onProgress = () => {}, signal, maxBytes = MAX_BYTES, variantUrl) {
   let p = await loadMedia(variantUrl || url, signal);
+  // The master playlist knows which sound track goes with which quality. A chosen quality's own
+  // playlist doesn't, so then the master is read again.
+  let master = p;
+  let chosen = variantUrl || p.chosen || url;
+  if (variantUrl) master = await fetchPlaylist(url, signal).catch(() => ({ variants: [], audios: [] }));
   if (!variantUrl && p.variants.length) {
     let qs = qualitiesOf(p, maxBytes);
     if (!pickQuality(qs)) throw new Error(`Too large to join in memory (over ${Math.round((maxBytes / 1e9) * 10) / 10} GB)`);
@@ -145,6 +181,7 @@ export async function downloadHls(url, onProgress = () => {}, signal, maxBytes =
       if (!q || q.url === p.url) break; // the playlist we already loaded is the pick (or nothing else is left)
       try {
         p = await loadMedia(q.url, signal);
+        chosen = q.url;
         break;
       } catch (e) {
         if (signal?.aborted) throw e;
@@ -156,6 +193,7 @@ export async function downloadHls(url, onProgress = () => {}, signal, maxBytes =
   if (p.live) throw new Error("Live streams can't be downloaded");
   if (p.unsupported) throw new Error(`Not supported yet: ${p.unsupported}`);
   if (!p.segments.length) throw new Error('The playlist has no video pieces');
+  const { track, why } = await audioPlan(master, chosen, p, signal);
 
   // If any piece fails for good, `stop` makes the other workers quit instead of
   // quietly downloading the rest of a stream that is already doomed.
@@ -209,33 +247,49 @@ export async function downloadHls(url, onProgress = () => {}, signal, maxBytes =
     }
   };
 
-  // 4 downloads at a time, results kept in playlist order.
-  const parts = new Array(p.segments.length);
-  let next = 0;
+  // 4 downloads at a time, results kept in playlist order. Progress counts the sound pieces too.
+  const total = p.segments.length + (track?.segments.length || 0);
   let done = 0;
   let bytes = 0;
-  const worker = async () => {
-    try {
-      while (next < parts.length) {
-        sig.throwIfAborted(); // stop between pieces even if fetch ignores the signal
-        const i = next++;
-        parts[i] = await get(p.segments[i].url, p.segments[i]);
-        bytes += parts[i].byteLength;
-        // The joined file is built in memory; stop with a clear message before the page runs out of it.
-        if (bytes > maxBytes) throw new Error(`Too large to join in memory (over ${Math.round(maxBytes / 1e9 * 10) / 10} GB)`);
-        onProgress(++done, parts.length);
+  const fetchParts = async (segments) => {
+    const parts = new Array(segments.length);
+    let next = 0;
+    const worker = async () => {
+      try {
+        while (next < parts.length) {
+          sig.throwIfAborted(); // stop between pieces even if fetch ignores the signal
+          const i = next++;
+          parts[i] = await get(segments[i].url, segments[i]);
+          bytes += parts[i].byteLength;
+          // The joined file is built in memory; stop with a clear message before the page runs out of it.
+          if (bytes > maxBytes) throw new Error(`Too large to join in memory (over ${Math.round(maxBytes / 1e9 * 10) / 10} GB)`);
+          onProgress(++done, total);
+        }
+      } catch (e) {
+        stop.abort();
+        throw e; // Promise.all below reports this first error, not the others' "aborted"
       }
-    } catch (e) {
-      stop.abort();
-      throw e; // Promise.all below reports this first error, not the others' "aborted"
-    }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    return parts;
   };
-  await Promise.all([worker(), worker(), worker(), worker()]);
+  let parts = await fetchParts(p.segments);
+  const soundParts = track ? await fetchParts(track.segments) : null;
   signal?.throwIfAborted(); // stopped while the last pieces were in flight: no file
+
+  // Join the sound into the video. If that fails the video is still worth saving: say what is missing.
+  let note = why ? `Saved without sound: ${why}` : '';
+  if (soundParts) {
+    try {
+      parts = mergeTs(parts, soundParts);
+    } catch (e) {
+      note = `Saved without sound: ${e.message}`;
+    }
+  }
 
   const init = p.init ? [await get(p.init)] : [];
   // The type matters: without it Chrome calls the file plain text and renames it to .txt.
   // ponytail: the whole stream is held in memory, hence the maxBytes limit above.
   const ext = p.init ? 'mp4' : 'ts';
-  return { blob: new Blob([...init, ...parts], { type: ext === 'mp4' ? 'video/mp4' : 'video/mp2t' }), ext };
+  return { blob: new Blob([...init, ...parts], { type: ext === 'mp4' ? 'video/mp4' : 'video/mp2t' }), ext, note };
 }

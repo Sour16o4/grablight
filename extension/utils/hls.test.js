@@ -17,6 +17,13 @@ assert.equal(drm.drm, true);
 assert.equal(parsePlaylist('#EXTM3U\n#EXTINF:4,\na.ts\n', B).live, true);
 assert.equal(parsePlaylist('#EXTM3U\n#EXT-X-BYTERANGE:100@0\n#EXTINF:4,\na.ts\n#EXT-X-ENDLIST', B).unsupported, 'byte-range playlists');
 assert.throws(() => parsePlaylist('<html>', B), /Not an HLS/);
+// a separate sound track: listed by group, and the quality points at its group
+const withSound = parsePlaylist(
+  '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="en",DEFAULT=YES,URI="en.m3u8"\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="x"\n#EXT-X-STREAM-INF:BANDWIDTH=1,AUDIO="a"\nv.m3u8\n',
+  B,
+);
+assert.deepEqual(withSound.audios, [{ group: 'a', url: B + 'en.m3u8', default: true }]); // one without a URI is inside the video
+assert.equal(withSound.variants[0].audio, 'a');
 
 // IV: explicit hex, or the sequence number (big-endian) when absent
 assert.equal(ivFor({ key: { iv: '0x01' }, seq: 9 })[15], 1);
@@ -50,7 +57,7 @@ assert.equal(Buffer.from(await blob.arrayBuffer()).toString(), Buffer.concat(pla
 assert.equal(progress.at(-1), '3/3');
 {
   const info = await hlsInfo(B + 'master.m3u8');
-  assert.deepEqual({ ...info, qualities: undefined }, { hlsChecked: true, drm: false, live: false, unsupported: '', qualities: undefined });
+  assert.deepEqual({ ...info, qualities: undefined }, { hlsChecked: true, drm: false, live: false, unsupported: '', qualities: undefined, audio: 'inline' });
   assert.equal(info.qualities.length, 2); // low and high, best first
 }
 

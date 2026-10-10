@@ -61,6 +61,7 @@ export default function App() {
     setTab('downloads'); // show it straight away: progress, stop and delete live there
     const r = await browser.runtime.sendMessage({ type: 'download', tabId: tabId.current, file: f, variantUrl });
     if (!r?.ok && r?.error !== 'Stopped') setNote(`Failed: ${r?.error || 'unknown error'}`);
+    else if (r?.note) setNote(r.note); // saved, but something is missing (e.g. no sound)
   };
 
   useEffect(() => {
@@ -112,7 +113,7 @@ export default function App() {
         ))}
       </nav>
 
-      {note && <p className="px-4 pt-3 text-xs text-red">{note}</p>}
+      {note && <p className={`px-4 pt-3 text-xs ${note.startsWith('Failed') ? 'text-red' : 'text-amber'}`}>{note}</p>}
       {tab === 'downloads' && <Downloads {...dl} />}
       {tab === 'history' && <History />}
 
@@ -213,7 +214,7 @@ function Empty({ children }) {
 // downloading straight away.
 function FileRow({ f, i, pref, open, setOpen, download }) {
   const many = f.kind === 'manifest' && f.qualities?.length > 1;
-  const meta = [f.ext || f.kind, many && `${f.qualities.length} qualities`, size(f.size)].filter(Boolean).join(' · ');
+  const meta = [f.ext || f.kind, many && `${f.qualities.length} qualities`, f.audio === 'separate' && 'sound joined', size(f.size)].filter(Boolean).join(' · ');
   return (
     <li className="rise border-t border-hair px-4 py-2.5 first:border-t-0" style={{ animationDelay: `${Math.min(i, 12) * 24}ms` }}>
       <div className="flex items-center gap-3">
@@ -221,7 +222,7 @@ function FileRow({ f, i, pref, open, setOpen, download }) {
         <span className="min-w-0 flex-1" title={f.url}>
           <span className="block truncate text-[13px]">{f.name}</span>
           <span className={`${mono} block truncate`}>{meta}</span>
-          {f.light.color !== 'green' && <span className={`block truncate text-[11px] ${LENS[f.light.color]}`}>{f.light.reason}</span>}
+          {f.light.color !== 'green' && <span className={`block text-[11px] leading-snug ${LENS[f.light.color]}`}>{f.light.reason}</span>}
         </span>
         <Lens color={f.light.color} reason={f.light.reason} />
         <button

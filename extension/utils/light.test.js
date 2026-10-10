@@ -10,6 +10,8 @@ const hls = { url: 'https://a.com/v.m3u8', kind: 'manifest', ext: 'm3u8', status
 eq(light(hls).color, 'green');
 eq(light({ ...hls, hlsChecked: undefined }).color, 'yellow');
 eq(light({ ...hls, drm: true }).color, 'red');
+eq(light({ ...hls, audio: 'lost' }).color, 'yellow'); // a silent download is not a green one
+eq(light({ ...hls, audio: 'separate' }).color, 'green');
 eq(light({ ...hls, live: true }).color, 'red');
 eq(light({ ...hls, ext: 'mpd' }).color, 'red');
 eq(light({ url: 'https://a.com/v.mp4', kind: 'video', status: 200 }, 'https://www.netflix.com/watch').color, 'red');

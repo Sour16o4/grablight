@@ -123,7 +123,7 @@ export default defineContentScript({
       label.textContent = 'Downloading…'; // streams can take a while
       btn.title = 'Click the Grablight icon in the toolbar to watch, stop or delete it';
       const r = await browser.runtime.sendMessage({ type: 'download', file: info }).catch(() => null);
-      label.textContent = r?.ok ? 'Started' : r?.error === 'Stopped' ? 'Stopped' : `Failed: ${r?.error || 'unknown error'}`;
+      label.textContent = r?.ok ? (r.note ? 'Started, no sound' : 'Started') : r?.error === 'Stopped' ? 'Stopped' : `Failed: ${r?.error || 'unknown error'}`;
     });
   },
 });
