@@ -15,7 +15,11 @@ assert.deepEqual(master.variants.map((v) => v.url), [B + 'low.m3u8', B + 'high.m
 const drm = parsePlaylist('#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://x"\n#EXTINF:4,\na.ts\n#EXT-X-ENDLIST', B);
 assert.equal(drm.drm, true);
 assert.equal(parsePlaylist('#EXTM3U\n#EXTINF:4,\na.ts\n', B).live, true);
-assert.equal(parsePlaylist('#EXTM3U\n#EXT-X-BYTERANGE:100@0\n#EXTINF:4,\na.ts\n#EXT-X-ENDLIST', B).unsupported, 'byte-range playlists');
+// byte ranges: an explicit offset, then one that continues from the end of the last range of the same file
+const br = parsePlaylist('#EXTM3U\n#EXT-X-MAP:URI="m.mp4",BYTERANGE="600@0"\n#EXT-X-BYTERANGE:100@600\n#EXTINF:4,\na.ts\n#EXT-X-BYTERANGE:50\n#EXTINF:4,\na.ts\n#EXT-X-ENDLIST', B);
+assert.deepEqual(br.segments.map((s) => s.range), [[600, 699], [700, 749]]);
+assert.deepEqual(br.initRange, [0, 599]);
+assert.equal(br.unsupported, '');
 assert.throws(() => parsePlaylist('<html>', B), /Not an HLS/);
 // a separate sound track: listed by group, and the quality points at its group
 const withSound = parsePlaylist(

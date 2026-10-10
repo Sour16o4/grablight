@@ -4,13 +4,14 @@
 // offscreen page in Chrome and in plain node for the checks in hls.test.js.
 //
 // Not supported, reported as such instead of producing a broken file:
-//   DRM (SAMPLE-AES, Widevine, FairPlay), live streams, byte-range playlists.
+//   DRM (SAMPLE-AES, Widevine, FairPlay) and live streams. Byte-range playlists are fetched piece by piece with Range requests.
 // ponytail: output is the raw joined pieces (.ts, or .mp4 for fMP4 streams), no remuxing;
 // players like VLC and mpv open it, upgrade to a remuxer if people need a clean .mp4.
 // A separate sound track (EXT-X-MEDIA TYPE=AUDIO) is fetched too and joined into the .ts by ts.js.
-// If it can't be joined (fMP4, unknown format) the file is saved without sound and the result says so.
+// If it can't be joined (mixed packaging, unknown format) the file is saved without sound and the result says so.
 
 import { mergeTs } from './ts.js';
+import { mergeMp4 } from './mp4.js';
 
 const attrs = (s) =>
   Object.fromEntries(
@@ -24,6 +25,8 @@ export function parsePlaylist(text, base) {
   const out = { url: base, variants: [], audios: [], segments: [], init: null, drm: false, live: true, unsupported: '', duration: 0 };
   let seq = 0;
   let key = null;
+  let range = null; // set by BYTERANGE, consumed by the URI line after it
+  const ends = new Map(); // where the last range of each file ended: a range without an offset continues from there
   let variant = null; // set by STREAM-INF, consumed by the URI line after it
   let segment = false; // set by EXTINF, consumed by the URI line after it
 
@@ -48,8 +51,14 @@ export function parsePlaylist(text, base) {
         out.drm = true; // SAMPLE-AES, Widevine, FairPlay...
         key = null;
       }
-    } else if (line.startsWith('#EXT-X-MAP:')) out.init = abs(attrs(line.slice(11)).URI);
-    else if (line.startsWith('#EXT-X-BYTERANGE')) out.unsupported = 'byte-range playlists';
+    } else if (line.startsWith('#EXT-X-MAP:')) {
+      const a = attrs(line.slice(11));
+      out.init = abs(a.URI);
+      if (a.BYTERANGE) {
+        const [n, o] = a.BYTERANGE.split('@').map(Number);
+        out.initRange = [o || 0, (o || 0) + n - 1];
+      }
+    } else if (line.startsWith('#EXT-X-BYTERANGE:')) range = line.slice(17).split('@').map(Number);
     else if (line === '#EXT-X-ENDLIST') out.live = false;
     else if (line.startsWith('#EXTINF:')) {
       segment = true;
@@ -60,7 +69,15 @@ export function parsePlaylist(text, base) {
         out.variants.push({ url: abs(line), ...variant });
         variant = null;
       } else if (segment) {
-        out.segments.push({ url: abs(line), key, seq: seq++ });
+        const url = abs(line);
+        let r = null;
+        if (range) {
+          const start = range[1] ?? ends.get(url) ?? 0;
+          r = [start, start + range[0] - 1];
+          ends.set(url, r[1] + 1);
+          range = null;
+        }
+        out.segments.push({ url, key, seq: seq++, ...(r && { range: r }) });
         segment = false;
       }
     }
@@ -129,10 +146,10 @@ async function audioPlan(master, chosen, video, signal) {
   const options = group ? master.audios.filter((a) => a.group === group) : [];
   const pick = options.find((a) => a.default) || options[0];
   if (!pick) return { track: null, why: '' };
-  if (video.init) return { track: null, why: 'the sound is a separate track in a format that cannot be joined' };
   try {
     const track = await loadMedia(pick.url, signal);
-    if (track.init || track.drm || track.live || track.unsupported || !track.segments.length) {
+    // TS joins with TS (or bare AAC), fMP4 with fMP4. Mixed packaging can't be joined.
+    if (!!track.init !== !!video.init || track.drm || track.live || track.unsupported || !track.segments.length) {
       return { track: null, why: 'the sound is a separate track in a format that cannot be joined' };
     }
     return { track, why: '' };
@@ -219,8 +236,9 @@ export async function downloadHls(url, onProgress = () => {}, signal, maxBytes =
   };
   const fetchPiece = async (u, segment) => {
     let r;
+    const range = segment?.range;
     try {
-      r = await fetchOk(u);
+      r = await fetch(u, { signal: sig, credentials: 'include', ...(range && { headers: { Range: `bytes=${range[0]}-${range[1]}` } }) });
     } catch (e) {
       e.retry = !sig.aborted; // a network hiccup is worth another try, a stop is not
       throw e;
@@ -230,7 +248,8 @@ export async function downloadHls(url, onProgress = () => {}, signal, maxBytes =
       e.retry = r.status >= 500 || r.status === 429; // a 404 will still be a 404
       throw e;
     }
-    const data = await r.arrayBuffer();
+    let data = await r.arrayBuffer();
+    if (range && r.status === 200) data = data.slice(range[0], range[1] + 1); // the server ignored Range and sent the whole file
     if (!segment?.key) return data;
     // WebCrypto also strips the padding at the end.
     return crypto.subtle.decrypt({ name: 'AES-CBC', iv: ivFor(segment) }, await getKey(segment.key.uri), data);
@@ -277,17 +296,20 @@ export async function downloadHls(url, onProgress = () => {}, signal, maxBytes =
   const soundParts = track ? await fetchParts(track.segments) : null;
   signal?.throwIfAborted(); // stopped while the last pieces were in flight: no file
 
+  let init = p.init ? [await get(p.init, { range: p.initRange })] : [];
   // Join the sound into the video. If that fails the video is still worth saving: say what is missing.
   let note = why ? `Saved without sound: ${why}` : '';
   if (soundParts) {
     try {
-      parts = mergeTs(parts, soundParts);
+      if (p.init) {
+        parts = mergeMp4(init[0], parts, await get(track.init, { range: track.initRange }), soundParts);
+        init = []; // the joined init piece is the first of the parts
+      } else parts = mergeTs(parts, soundParts);
     } catch (e) {
       note = `Saved without sound: ${e.message}`;
     }
   }
 
-  const init = p.init ? [await get(p.init)] : [];
   // The type matters: without it Chrome calls the file plain text and renames it to .txt.
   // ponytail: the whole stream is held in memory, hence the maxBytes limit above.
   const ext = p.init ? 'mp4' : 'ts';
