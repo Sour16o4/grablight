@@ -96,6 +96,8 @@ async function analyze(tabId) {
   scanned.forEach((f) => (files[f.url] ||= f));
   const todo = Object.values(files);
   for (let i = 0; i < todo.length; i += 6) await Promise.all(todo.slice(i, i + 6).map(inspect));
+  // A link that looks like a file (".webm") but turns out to be a web page is not a file: don't list it.
+  for (const f of todo) if (f.probe && /text\/html/i.test(f.contentType || '')) delete files[f.url];
   if (pageOf.get(tabId) !== pageThen) return []; // navigated away meanwhile: this result is stale
   return locked(async () => {
     // The sniffer may have added files while we were checking headers: keep them.
