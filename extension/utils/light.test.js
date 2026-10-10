@@ -1,5 +1,5 @@
 // Run: node utils/light.test.js
-import { light, matchImage, matchVideo, pageLight, parseBlocked } from './light.js';
+import { light, matchImage, niceName, matchVideo, pageLight, parseBlocked } from './light.js';
 
 const eq = (a, b) => console.assert(a === b, `expected ${b}, got ${a}`);
 eq(light({ url: 'https://a.com/x.pdf', kind: 'file', status: 200, contentType: 'application/pdf' }).color, 'green');
@@ -35,4 +35,7 @@ eq(matchVideo([], 'blob:x'), null);
 const im = { url: 'https://a.com/i.png', kind: 'image', light: { color: 'green', reason: '' } };
 eq(matchImage([a, im], 'https://a.com/i.png'), im);
 eq(matchImage([a, im], 'data:image/png;base64,xx'), null);
+eq(niceName({ name: 'master.m3u8', url: 'https://c.com/shows/s2e4/master.m3u8' }), 's2e4/master.m3u8');
+eq(niceName({ name: 'master.m3u8', url: 'https://cdn.c.com/master.m3u8' }), 'cdn.c.com/master.m3u8');
+eq(niceName({ name: 'holiday.mp4', url: 'https://c.com/a/holiday.mp4' }), 'holiday.mp4'); // a real name stays
 console.log('light.js checks done');

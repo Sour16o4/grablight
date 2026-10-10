@@ -1,0 +1,50 @@
+/* Shared by the popup and the settings page: Tailwind, the fonts and the colours from DESIGN.md. */
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --color-room: #0e0e10;
+  --color-plate: #17171a;
+  --color-ink: #eceae4;
+  --color-dim: #8c8c94;
+  --color-hair: rgb(236 234 228 / 0.09);
+  --color-green: #59b88a;
+  --color-amber: #d9a441;
+  --color-red: #d2605a;
+}
+
+/* Rows rise in one after another. Only transform and opacity move. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.rise { animation: rise 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+.skeleton { position: relative; overflow: hidden; background: var(--color-plate); }
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgb(236 234 228 / 0.06), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+/* The lens: a disc with a flat ring of the same hue. A ring, not a glow. */
+.lens { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 3px rgb(from currentColor r g b / 0.22); background: currentColor; }
+
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+.press { transition: transform 0.15s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.15s; }
+.press:active:not(:disabled) { transform: translateY(1px); }
+:focus-visible { outline: 2px solid var(--color-ink); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise, .skeleton::after { animation: none; }
+}

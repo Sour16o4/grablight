@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { pickQuality } from '../../utils/hls.js';
+import { niceName } from '../../utils/light.js';
 
 // The light is the only colour in the popup. See DESIGN.md.
 const LENS = { green: 'text-green', yellow: 'text-amber', red: 'text-red' };
@@ -220,7 +221,7 @@ function FileRow({ f, i, pref, open, setOpen, download }) {
       <div className="flex items-center gap-3">
         <Thumb f={f} />
         <span className="min-w-0 flex-1" title={f.url}>
-          <span className="block truncate text-[13px]">{f.name}</span>
+          <span className="block truncate text-[13px]">{niceName(f)}</span>
           <span className={`${mono} block truncate`}>{meta}</span>
           {f.light.color !== 'green' && <span className={`block text-[11px] leading-snug ${LENS[f.light.color]}`}>{f.light.reason}</span>}
         </span>

@@ -78,3 +78,17 @@ export function matchVideo(files, src = '') {
 
 // An <img> only ever matches its own file: there is no "best image on the page" to fall back to.
 export const matchImage = (files, src = '') => files.find((f) => f.kind === 'image' && f.light && f.url.split('#')[0] === src.split('#')[0]) || null;
+
+// A name to show for a file. Playlists are usually all called "master.m3u8" or "index.m3u8", which tells you
+// nothing, so those get the folder they live in: "season-2/master.m3u8".
+const GENERIC = /^(master|index|playlist|prog_index|manifest|main|stream|video|chunklist)\.(m3u8|mpd)$/i;
+export function niceName(f) {
+  if (!GENERIC.test(f.name || '')) return f.name;
+  try {
+    const u = new URL(f.url);
+    const parent = u.pathname.split('/').filter(Boolean).slice(-2, -1)[0];
+    return `${parent ? decodeURIComponent(parent) : u.hostname}/${f.name}`;
+  } catch {
+    return f.name;
+  }
+}

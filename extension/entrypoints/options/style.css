@@ -1,1 +1,10 @@
-@import "tailwindcss";
+@import "../../utils/theme.css";
+
+body {
+  margin: 0;
+  background: var(--color-room);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color-scheme: dark;
+}
