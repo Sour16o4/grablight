@@ -41,4 +41,15 @@ eq(joined[soundPackets[0] * 188 + 4], 9); // and carries the sound's data
 let err = '';
 try { mergeTs([video], [video]); } catch (e) { err = e.message; }
 eq(err, 'The sound track is not in a format that can be joined');
+// packed audio: a bare ADTS AAC file (one 20-byte frame) is wrapped into TS on its own PID
+const adts = new Uint8Array(20);
+adts.set([0xff, 0xf1, 0x50, 0x00, 0x02, 0x9f, 0xfc]);
+const packedOut = mergeTs([video], [adts.buffer]);
+const pj = new Uint8Array(packedOut.reduce((n, x) => n + x.length, 0));
+let pat2 = 0;
+packedOut.forEach((x) => (pj.set(x, pat2), (pat2 += x.length)));
+const pt = readTables(pj);
+eq(pt.streams[1].type, 0x0f);
+const pes = [...Array(pj.length / 188).keys()].find((i) => ((pj[i * 188 + 1] & 0x1f) << 8 | pj[i * 188 + 2]) === pt.streams[1].pid);
+eq(pj.slice(pes * 188 + 4).findIndex((x, i, a) => x === 0 && a[i + 1] === 0 && a[i + 2] === 1 && a[i + 3] === 0xc0) >= 0, true);
 console.log('ts.js checks done');
