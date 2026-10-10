@@ -67,6 +67,28 @@ export default function App() {
         />
       </section>
 
+      <section className="mt-8">
+        <label htmlFor="quality" className="block font-medium">
+          Default stream quality
+        </label>
+        <p className="text-sm text-slate-500">
+          For video streams that come in several qualities. The button over videos has no room for a picker, so with
+          “Ask” it uses the best quality that fits in memory.
+        </p>
+        <select
+          id="quality"
+          value={settings.streamQuality}
+          onChange={(e) => change({ streamQuality: e.target.value })}
+          className="mt-2 rounded-md border border-slate-300 p-2 text-sm"
+        >
+          <option value="ask">Ask me in the popup</option>
+          <option value="best">Best that fits in memory</option>
+          <option value="1080">1080p or lower</option>
+          <option value="720">720p or lower</option>
+          <option value="480">480p or lower</option>
+        </select>
+      </section>
+
       <section className="mt-8 flex items-center gap-4">
         <button
           type="button"

@@ -58,3 +58,22 @@ export function pageLight(files) {
   const colors = files.map((f) => f.light.color);
   return ['green', 'yellow', 'red'].find((c) => colors.includes(c));
 }
+
+// Which file belongs to a <video>? Only an exact src match (ignoring #fragment) is certain.
+// A blob: video with a single candidate on the page is also safe. Anything else is a guess:
+// still returned so it can be downloaded, but yellow, so the light never claims more than we know.
+export function matchVideo(files, src = '') {
+  const videos = files.filter((f) => (f.kind === 'video' || f.kind === 'manifest') && f.light);
+  const bare = (u) => u.split('#')[0];
+  const exact = videos.find((f) => bare(f.url) === bare(src));
+  if (exact) return exact;
+  const ok = videos.filter((f) => f.light.color !== 'red');
+  if (src.startsWith('blob:') && videos.length === 1) return videos[0];
+  const guess = ok.find((f) => f.kind === 'manifest') || [...ok].sort((a, b) => b.size - a.size)[0] || videos[0];
+  if (!guess) return null;
+  if (guess.light.color === 'red') return guess; // nothing on the page works, so red is true for every candidate
+  return { ...guess, light: { color: 'yellow', reason: "Couldn't tell which file this video uses; this is the best match on the page" } };
+}
+
+// An <img> only ever matches its own file: there is no "best image on the page" to fall back to.
+export const matchImage = (files, src = '') => files.find((f) => f.kind === 'image' && f.light && f.url.split('#')[0] === src.split('#')[0]) || null;

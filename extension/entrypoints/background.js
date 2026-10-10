@@ -4,8 +4,8 @@
 //  2. checks every file's headers and gives it a light (see utils/light.js),
 //  3. shows the page's overall light + file count on the toolbar icon.
 import { scanPage } from '../utils/scan.js';
-import { light, pageLight, parseBlocked } from '../utils/light.js';
-import { hlsInfo } from '../utils/hls.js';
+import { light, matchImage, matchVideo, pageLight, parseBlocked } from '../utils/light.js';
+import { hlsInfo, pickQuality, MAX_BYTES } from '../utils/hls.js';
 import { getSettings, addHistory } from '../utils/settings.js';
 
 const SNIFF = /^(video|audio)\/|mpegurl|dash\+xml/i;
@@ -58,6 +58,15 @@ async function inspect(f) {
   }
 }
 
+// Toolbar hover text, e.g. "Grablight: 3 images, 1 video, 1 file". Streams count as videos.
+const NOUN = { image: 'image', video: 'video', manifest: 'video', audio: 'audio', file: 'file' };
+function summary(list) {
+  const n = {};
+  list.forEach((f) => (n[NOUN[f.kind] || 'file'] = (n[NOUN[f.kind] || 'file'] || 0) + 1));
+  const parts = Object.entries(n).map(([k, c]) => `${c} ${k}${c > 1 ? 's' : ''}`);
+  return parts.length ? `Grablight: ${parts.join(', ')}` : 'Grablight: nothing found on this page';
+}
+
 async function finish(tabId, files) {
   const tab = await browser.tabs.get(tabId).catch(() => null);
   if (!tab) return [];
@@ -68,6 +77,7 @@ async function finish(tabId, files) {
   const color = list.length && pageLight(list);
   await browser.action.setBadgeText({ tabId, text: list.length ? String(Math.min(list.length, 99)) : '' });
   if (color) await browser.action.setBadgeBackgroundColor({ tabId, color: BADGE_COLOR[color] });
+  await browser.action.setTitle({ tabId, title: summary(list) });
   return list;
 }
 
@@ -95,21 +105,10 @@ async function analyze(tabId) {
   });
 }
 
-// Which file belongs to a <video>? Exact match on its src if the page gave a real URL;
-// otherwise (blob: streams) a working stream playlist, else the biggest working video the
-// sniffer saw: working beats broken.
-async function videoInfo(tabId, src) {
+async function videoInfo(tabId, src, image) {
   let files = Object.values(await load(tabId));
   if (!files.length) files = await analyze(tabId);
-  const videos = files.filter((f) => (f.kind === 'video' || f.kind === 'manifest') && f.light);
-  const ok = videos.filter((f) => f.light.color !== 'red');
-  return (
-    videos.find((f) => f.url === src) ||
-    ok.find((f) => f.kind === 'manifest') ||
-    ok.sort((a, b) => b.size - a.size)[0] ||
-    videos[0] ||
-    null
-  );
+  return image ? matchImage(files, src) : matchVideo(files, src);
 }
 
 async function ensureOffscreen() {
@@ -136,18 +135,27 @@ const setJob = (id, patch) =>
     await browser.storage.session.set({ jobs });
   }));
 
-async function downloadFile(tabId, f) {
+// variantUrl: the stream quality picked in the popup. Otherwise the setting decides.
+async function downloadFile(tabId, f, variantUrl) {
   const tab = await browser.tabs.get(tabId).catch(() => null);
   let name = f.name;
   if (f.kind !== 'manifest') {
     await browser.downloads.download({ url: f.url });
   } else {
-    const title = (tab?.title || f.name || 'video').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80);
+    const qualities = f.qualities || [];
+    if (!variantUrl && qualities.length) {
+      const { streamQuality } = await getSettings();
+      const q = pickQuality(qualities, streamQuality === 'ask' ? 'best' : streamQuality);
+      if (!q) throw new Error(`Too large to join in memory (over ${MAX_BYTES / 1e9} GB)`);
+      variantUrl = q.url;
+    }
+    const label = qualities.find((q) => q.url === variantUrl)?.label;
+    const title = ((tab?.title || f.name || 'video') + (label ? ` ${label}` : '')).replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 90);
     const jobId = crypto.randomUUID();
     await setJob(jobId, { name: title, done: 0, total: 0 });
     try {
       await ensureOffscreen();
-      const r = await browser.runtime.sendMessage({ type: 'hls-run', jobId, url: f.url, tabId });
+      const r = await browser.runtime.sendMessage({ type: 'hls-run', jobId, url: f.url, variantUrl, tabId });
       if (!r?.ok) throw new Error(r?.error || 'Download failed');
       name = `${title}.${r.ext}`;
       await browser.downloads.download({ url: r.url, filename: name });
@@ -247,10 +255,10 @@ export default defineBackground(() => {
   // The popup and the on-page video button ask for things this way.
   browser.runtime.onMessage.addListener((msg, sender) => {
     if (msg?.type === 'analyze') return analyze(msg.tabId);
-    if (msg?.type === 'video-info') return videoInfo(sender.tab.id, msg.src);
+    if (msg?.type === 'video-info') return videoInfo(sender.tab.id, msg.src, msg.image);
     if (msg?.type === 'download') {
       const tabId = msg.tabId ?? sender.tab?.id;
-      return downloadFile(tabId, msg.file)
+      return downloadFile(tabId, msg.file, msg.variantUrl)
         .then(
           () => ({ ok: true }),
           (e) => ({ ok: false, error: e.message }),

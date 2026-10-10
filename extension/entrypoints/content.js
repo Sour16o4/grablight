@@ -1,4 +1,4 @@
-// Phase 5: a small button that appears over any video you hover, with its light.
+// Phase 5: a small button that appears over any video (or large image) you hover, with its light.
 // It runs inside the web page; the background script does the real work
 // (finding the file, downloading), because only it can use the downloads API.
 const COLORS = { green: '#10b981', yellow: '#f59e0b', red: '#ef4444' };
@@ -55,7 +55,7 @@ export default defineContentScript({
 
       let f;
       try {
-        f = await browser.runtime.sendMessage({ type: 'video-info', src: v.currentSrc || v.src });
+        f = await browser.runtime.sendMessage({ type: 'video-info', src: v.currentSrc || v.src, image: v.tagName === 'IMG' });
       } catch {
         // Grablight was reloaded or updated: this page still has the old script. A page reload fixes it.
         label.textContent = 'Reload this page';
@@ -63,7 +63,7 @@ export default defineContentScript({
       }
       if (v !== video) return; // moved to another video meanwhile
       info = f;
-      const l = f?.light || { color: 'red', reason: "No file found: this video is streamed" };
+      const l = f?.light || { color: 'red', reason: `No file found: this ${v.tagName === 'IMG' ? 'image is not a separate file' : 'video is streamed'}` };
       dot.style.background = COLORS[l.color];
       label.textContent = LABELS[l.color];
       btn.title = l.reason;
@@ -72,10 +72,10 @@ export default defineContentScript({
 
     // Like document.elementsFromPoint, but also looks inside open shadow roots, where some players live.
     // ponytail: closed shadow roots can't be seen from here.
-    const videoAt = (x, y, root = document) => {
+    const mediaAt = (x, y, root = document) => {
       for (const el of root.elementsFromPoint(x, y)) {
-        if (el.tagName === 'VIDEO' && el.clientWidth >= 120) return el;
-        const inner = el.shadowRoot && videoAt(x, y, el.shadowRoot);
+        if ((el.tagName === 'VIDEO' || el.tagName === 'IMG') && el.clientWidth >= 120) return el;
+        const inner = el.shadowRoot && mediaAt(x, y, el.shadowRoot);
         if (inner) return inner;
       }
     };
@@ -86,7 +86,7 @@ export default defineContentScript({
       'mousemove',
       (e) => {
         if (!enabled) return hide();
-        const v = videoAt(e.clientX, e.clientY);
+        const v = mediaAt(e.clientX, e.clientY);
         if (v) {
           clearTimeout(hideTimer);
           hideTimer = 0;

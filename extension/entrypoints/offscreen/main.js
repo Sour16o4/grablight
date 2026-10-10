@@ -19,6 +19,8 @@ browser.runtime.onMessage.addListener((msg, _sender, reply) => {
     msg.url,
     (done, total) => browser.runtime.sendMessage({ type: 'hls-progress', jobId: msg.jobId, tabId: msg.tabId, done, total }),
     ctl.signal,
+    undefined, // memory limit: the default
+    msg.variantUrl,
   )
     .then(({ blob, ext }) => reply({ ok: true, url: URL.createObjectURL(blob), ext }))
     .catch((e) => reply({ ok: false, error: ctl.signal.aborted ? 'Stopped' : e.message }))

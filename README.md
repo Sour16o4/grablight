@@ -42,7 +42,9 @@ The install steps on the site tell visitors to `git clone` this repo, so make th
 - Finds files, images, audio and video on the page, plus videos the page never lists (by watching network responses).
 - Gives each one a light with the reason. Checks the file's headers and, for streams, the playlist.
 - Popup tabs: **Files**, **Downloads** (live progress, pause, stop, show, delete) and **History**.
-- A Download button over any video you hover. Turn it off in Settings.
+- A Download button over any video or large image you hover, with its light. If the page doesn't say which file a video plays (e.g. `blob:` players) and several are found, the light is yellow, not green. Turn it off in Settings.
+- Hovering the toolbar icon lists what was found, e.g. "3 images, 1 video".
+- Streams with several qualities open a quality picker in the popup, with an estimated size per quality. Choose a default in Settings.
 - HLS video streams (`.m3u8`), including AES-128 encryption, are joined into one `.ts` (or `.mp4`) file.
 - Settings: hide the video button, add sites to never take video or audio from.
 

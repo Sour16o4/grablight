@@ -3,6 +3,9 @@
 export const DEFAULTS = {
   showVideoButton: true, // the Download button that appears over videos
   blockedSites: '', // extra sites to refuse video/audio from, see parseBlocked in light.js
+  // Stream quality: 'ask' (the popup shows a picker), 'best' (best that fits in memory), or a height like '720'.
+  // The button over videos has no room for a picker, so for 'ask' it uses 'best'.
+  streamQuality: 'ask',
 };
 
 export const getSettings = () => browser.storage.local.get(DEFAULTS);
