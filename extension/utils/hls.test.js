@@ -65,6 +65,35 @@ assert.equal(progress.at(-1), '3/3');
   assert.equal(info.qualities.length, 2); // low and high, best first
 }
 
+// pieces kept in a store other than memory (the browser keeps them on disk): same file out, and the store did the work
+{
+  const kept = new Map();
+  const store = {
+    where: 'on disk',
+    put: async (b) => (kept.set(`p${kept.size}`, Buffer.from(b)), `p${kept.size - 1}`),
+    get: async (h) => kept.get(h),
+    blob: async (hs, type) => new Blob(hs.map((h) => kept.get(h)), { type }),
+  };
+  const out = await downloadHls(B + 'master.m3u8', undefined, undefined, undefined, undefined, store);
+  assert.equal(Buffer.from(await out.blob.arrayBuffer()).toString(), Buffer.concat(plain).toString());
+  assert.equal(kept.size, 3);
+  await assert.rejects(downloadHls(B + 'master.m3u8', undefined, undefined, 10, undefined, store), /Too large to join on disk/);
+}
+
+// byte-range playlist: each piece is a slice of one file, fetched with a Range header (or sliced here if the server ignores it)
+for (const honoursRange of [true, false]) {
+  const whole = Buffer.from('AAAAABBBBBCCCCC');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, o) => {
+    if (u === B + 'r.m3u8') return new Response('#EXTM3U\n#EXT-X-BYTERANGE:5@0\n#EXTINF:1,\nw.bin\n#EXT-X-BYTERANGE:5\n#EXTINF:1,\nw.bin\n#EXT-X-BYTERANGE:5\n#EXTINF:1,\nw.bin\n#EXT-X-ENDLIST\n');
+    const m = /bytes=(\d+)-(\d+)/.exec(o?.headers?.Range || '');
+    return m && honoursRange ? new Response(whole.subarray(+m[1], +m[2] + 1), { status: 206 }) : new Response(whole);
+  };
+  const out = await downloadHls(B + 'r.m3u8');
+  assert.equal(Buffer.from(await out.blob.arrayBuffer()).toString(), 'AAAAABBBBBCCCCC');
+  globalThis.fetch = realFetch;
+}
+
 // stopping mid-download rejects and stops fetching more pieces
 {
   const ctl = new AbortController();

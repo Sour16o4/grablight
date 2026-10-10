@@ -265,7 +265,7 @@ function QualityPicker({ f, pref, onDownload }) {
           />
           <span className="text-[13px]">
             {q.label}
-            {q.tooBig && <small className="block text-[11px] text-dim">Too big to join in memory (over 1.5 GB)</small>}
+            {q.tooBig && <small className="block text-[11px] text-dim">Too big to join (over {size(q.limit)})</small>}
           </span>
           <span className={mono}>about {size(q.est)}</span>
         </label>

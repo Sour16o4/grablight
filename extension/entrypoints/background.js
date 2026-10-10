@@ -136,6 +136,10 @@ const setJob = (id, patch) =>
   }));
 
 // variantUrl: the stream quality picked in the popup. Otherwise the setting decides.
+// Chrome download id -> the stream job whose joined file it is saving. When the download ends, the job's
+// pieces on disk can go. ponytail: lost if this worker restarts; the offscreen page also clears old jobs itself.
+const doneWith = new Map();
+
 async function downloadFile(tabId, f, variantUrl) {
   let note = ''; // something the person should know about the file, e.g. it has no sound
   const tab = await browser.tabs.get(tabId).catch(() => null);
@@ -147,7 +151,7 @@ async function downloadFile(tabId, f, variantUrl) {
     if (!variantUrl && qualities.length) {
       const { streamQuality } = await getSettings();
       const q = pickQuality(qualities, streamQuality === 'ask' ? 'best' : streamQuality);
-      if (!q) throw new Error(`Too large to join in memory (over ${MAX_BYTES / 1e9} GB)`);
+      if (!q) throw new Error("Too large to join: every quality is over the size limit");
       variantUrl = q.url;
     }
     const label = qualities.find((q) => q.url === variantUrl)?.label;
@@ -160,7 +164,12 @@ async function downloadFile(tabId, f, variantUrl) {
       if (!r?.ok) throw new Error(r?.error || 'Download failed');
       name = `${title}.${r.ext}`;
       note = r.note || '';
-      await browser.downloads.download({ url: r.url, filename: name });
+      try {
+        doneWith.set(await browser.downloads.download({ url: r.url, filename: name }), jobId);
+      } catch (e) {
+        browser.runtime.sendMessage({ type: 'hls-cleanup', jobId }).catch(() => {}); // never started: nothing will finish it
+        throw e;
+      }
     } finally {
       await setJob(jobId, null);
     }
@@ -249,6 +258,13 @@ export default defineBackground(() => {
       }
     }
     if (change.status === 'complete') analyze(tabId);
+  });
+  browser.downloads.onChanged.addListener((d) => {
+    const jobId = doneWith.get(d.id);
+    if (jobId && ['complete', 'interrupted'].includes(d.state?.current)) {
+      doneWith.delete(d.id);
+      browser.runtime.sendMessage({ type: 'hls-cleanup', jobId }).catch(() => {});
+    }
   });
   browser.tabs.onRemoved.addListener((tabId) => {
     pageOf.delete(tabId);

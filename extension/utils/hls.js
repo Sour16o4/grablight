@@ -10,8 +10,9 @@
 // A separate sound track (EXT-X-MEDIA TYPE=AUDIO) is fetched too and joined into the .ts by ts.js.
 // If it can't be joined (mixed packaging, unknown format) the file is saved without sound and the result says so.
 
-import { mergeTs } from './ts.js';
-import { mergeMp4 } from './mp4.js';
+import { tsMerger } from './ts.js';
+import { mp4Merger } from './mp4.js';
+import { order } from './order.js';
 
 const attrs = (s) =>
   Object.fromEntries(
@@ -109,8 +110,25 @@ export async function loadMedia(url, signal, depth = 0) {
   throw err;
 }
 
-// The joined file is built in memory, so nothing bigger than this is attempted.
+// With the default memory store the joined file is built in memory, so nothing bigger than this is attempted.
 export const MAX_BYTES = 1.5e9;
+
+// Where fetched pieces wait until the file is put together. Memory by default; the offscreen page passes
+// one backed by the browser's private disk storage, so streams bigger than memory work.
+// put(bytes) -> handle, get(handle) -> bytes, blob(handles, type) -> Blob. All may be async.
+export const memoryStore = { where: 'in memory', put: async (b) => b, get: async (h) => h, blob: async (hs, type) => new Blob(hs, { type }) };
+
+// How big a stream can be when pieces are kept on disk: a third of the free space (the joined copy needs room too), at most 40 GB.
+// Falls back to the memory limit where there is no disk storage to ask (plain node, old browsers).
+export async function diskLimit() {
+  try {
+    if (!navigator.storage?.getDirectory) return MAX_BYTES;
+    const { quota = 0, usage = 0 } = await navigator.storage.estimate();
+    return Math.max(MAX_BYTES, Math.min((quota - usage) / 3, 40e9));
+  } catch {
+    return MAX_BYTES;
+  }
+}
 
 // The qualities of a stream, best first, each with an estimated size (bitrate x length).
 export function qualitiesOf(media, maxBytes = MAX_BYTES) {
@@ -123,7 +141,7 @@ export function qualitiesOf(media, maxBytes = MAX_BYTES) {
       const audioOnly = !v.resolution && !!v.codecs && !/avc|hvc|hev|vp0|av01/i.test(v.codecs);
       const est = Math.round((v.bandwidth / 8) * media.duration);
       const label = audioOnly ? 'Audio only' : height ? `${height}p${height >= 2160 ? ' (4K)' : ''}` : `${(v.bandwidth / 1e6).toFixed(1)} Mbps`;
-      return { url: v.url, height, label, est, tooBig: est > maxBytes, audioOnly };
+      return { url: v.url, height, label, est, tooBig: est > maxBytes, limit: maxBytes, audioOnly };
     });
 }
 
@@ -166,7 +184,7 @@ export async function hlsInfo(url) {
   const media = await loadMedia(url);
   const { drm, live, unsupported } = media;
   const { track, why } = await audioPlan(media, media.chosen, media);
-  return { hlsChecked: true, drm, live, unsupported, qualities: qualitiesOf(media), audio: track ? 'separate' : why ? 'lost' : 'inline' };
+  return { hlsChecked: true, drm, live, unsupported, qualities: qualitiesOf(media, await diskLimit()), audio: track ? 'separate' : why ? 'lost' : 'inline' };
 }
 
 // AES-128 IV: the playlist's explicit IV, or the segment's sequence number as 16 big-endian bytes.
@@ -183,7 +201,7 @@ export function ivFor(segment) {
 
 // signal: an AbortSignal; aborting it stops the download and throws.
 // variantUrl: the quality the user chose. Without it, the best quality that fits in memory.
-export async function downloadHls(url, onProgress = () => {}, signal, maxBytes = MAX_BYTES, variantUrl) {
+export async function downloadHls(url, onProgress = () => {}, signal, maxBytes = MAX_BYTES, variantUrl, store = memoryStore) {
   let p = await loadMedia(variantUrl || url, signal);
   // The master playlist knows which sound track goes with which quality. A chosen quality's own
   // playlist doesn't, so then the master is read again.
@@ -192,7 +210,7 @@ export async function downloadHls(url, onProgress = () => {}, signal, maxBytes =
   if (variantUrl) master = await fetchPlaylist(url, signal).catch(() => ({ variants: [], audios: [] }));
   if (!variantUrl && p.variants.length) {
     let qs = qualitiesOf(p, maxBytes);
-    if (!pickQuality(qs)) throw new Error(`Too large to join in memory (over ${Math.round((maxBytes / 1e9) * 10) / 10} GB)`);
+    if (!pickQuality(qs)) throw new Error(`Too large to join ${store.where} (over ${Math.round((maxBytes / 1e9) * 10) / 10} GB)`);
     for (;;) {
       const q = pickQuality(qs);
       if (!q || q.url === p.url) break; // the playlist we already loaded is the pick (or nothing else is left)
@@ -271,17 +289,18 @@ export async function downloadHls(url, onProgress = () => {}, signal, maxBytes =
   let done = 0;
   let bytes = 0;
   const fetchParts = async (segments) => {
-    const parts = new Array(segments.length);
+    const handles = new Array(segments.length);
     let next = 0;
     const worker = async () => {
       try {
-        while (next < parts.length) {
+        while (next < handles.length) {
           sig.throwIfAborted(); // stop between pieces even if fetch ignores the signal
           const i = next++;
-          parts[i] = await get(segments[i].url, segments[i]);
-          bytes += parts[i].byteLength;
-          // The joined file is built in memory; stop with a clear message before the page runs out of it.
-          if (bytes > maxBytes) throw new Error(`Too large to join in memory (over ${Math.round(maxBytes / 1e9 * 10) / 10} GB)`);
+          const data = await get(segments[i].url, segments[i]);
+          bytes += data.byteLength;
+          // Stop with a clear message before the page (or the disk) runs out of room.
+          if (bytes > maxBytes) throw new Error(`Too large to join ${store.where} (over ${Math.round((maxBytes / 1e9) * 10) / 10} GB)`);
+          handles[i] = await store.put(data);
           onProgress(++done, total);
         }
       } catch (e) {
@@ -290,28 +309,40 @@ export async function downloadHls(url, onProgress = () => {}, signal, maxBytes =
       }
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
-    return parts;
+    return handles;
   };
-  let parts = await fetchParts(p.segments);
-  const soundParts = track ? await fetchParts(track.segments) : null;
+  const video = await fetchParts(p.segments);
+  const sound = track ? await fetchParts(track.segments) : null;
   signal?.throwIfAborted(); // stopped while the last pieces were in flight: no file
 
-  let init = p.init ? [await get(p.init, { range: p.initRange })] : [];
-  // Join the sound into the video. If that fails the video is still worth saving: say what is missing.
+  const initBytes = p.init ? await get(p.init, { range: p.initRange }) : null;
+  // Join the sound into the video, one piece at a time. If that fails the video is still worth saving: say what is missing.
   let note = why ? `Saved without sound: ${why}` : '';
-  if (soundParts) {
+  let pieces = video;
+  let initDone = false; // true when the joined init piece is already the first of the pieces
+  if (sound) {
     try {
+      const joined = [];
       if (p.init) {
-        parts = mergeMp4(init[0], parts, await get(track.init, { range: track.initRange }), soundParts);
-        init = []; // the joined init piece is the first of the parts
-      } else parts = mergeTs(parts, soundParts);
+        const m = mp4Merger(initBytes, await get(track.init, { range: track.initRange }));
+        joined.push(await store.put(m.init));
+        for (const [k, i] of order(video.length, sound.length)) joined.push(k === 'v' ? video[i] : await store.put(m.sound(await store.get(sound[i]))));
+        initDone = true;
+      } else {
+        const m = tsMerger(await store.get(video[0]), await store.get(sound[0]));
+        for (const [k, i] of order(video.length, sound.length)) {
+          joined.push(await store.put(k === 'v' ? m.video(await store.get(video[i])) : m.sound(await store.get(sound[i]))));
+        }
+      }
+      pieces = joined;
     } catch (e) {
       note = `Saved without sound: ${e.message}`;
     }
   }
+  signal?.throwIfAborted();
 
   // The type matters: without it Chrome calls the file plain text and renames it to .txt.
-  // ponytail: the whole stream is held in memory, hence the maxBytes limit above.
   const ext = p.init ? 'mp4' : 'ts';
-  return { blob: new Blob([...init, ...parts], { type: ext === 'mp4' ? 'video/mp4' : 'video/mp2t' }), ext, note };
+  const all = initBytes && !initDone ? [await store.put(initBytes), ...pieces] : pieces;
+  return { blob: await store.blob(all, ext === 'mp4' ? 'video/mp4' : 'video/mp2t'), ext, note };
 }

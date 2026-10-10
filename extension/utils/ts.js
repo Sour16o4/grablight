@@ -8,6 +8,8 @@
 // Sound pieces can be TS too, or "packed audio": bare AAC (ADTS) files, which we wrap into TS packets.
 // ponytail: TS sound (AAC/MP3/AC-3) and packed AAC only; packed MP3/AC-3 and fMP4 streams are not merged.
 // ponytail: pieces are interleaved a whole piece at a time, not packet by packet by timestamp.
+import { order } from './order.js';
+
 const PKT = 188;
 const AUDIO_TYPES = [0x0f, 0x11, 0x03, 0x04, 0x81, 0x87]; // AAC, AAC LATM, MPEG audio, AC-3, E-AC-3
 
@@ -67,13 +69,14 @@ function withAudio(pmt, add) {
   return out;
 }
 
-// videoParts, audioParts: arrays of ArrayBuffer (the pieces in order). Returns the joined Uint8Array pieces.
-export function mergeTs(videoParts, audioParts) {
-  const v = videoParts.map((x) => new Uint8Array(x));
-  const a = audioParts.map((x) => new Uint8Array(x));
-  const vt = readTables(v[0]);
-  const packed = isPacked(a[0]);
-  const track = packed ? { type: 0x0f, info: [], pid: 0 } : readTables(a[0]).streams.find((s) => AUDIO_TYPES.includes(s.type));
+// Reads the first video piece and the first sound piece and returns two functions that rewrite every
+// piece: video(part) and sound(part), each giving a Uint8Array. Sound pieces must be passed in order.
+export function tsMerger(firstVideo, firstSound) {
+  const v0 = new Uint8Array(firstVideo);
+  const a0 = new Uint8Array(firstSound);
+  const vt = readTables(v0);
+  const packed = isPacked(a0);
+  const track = packed ? { type: 0x0f, info: [], pid: 0 } : readTables(a0).streams.find((s) => AUDIO_TYPES.includes(s.type));
   if (!track) throw new Error('The sound track is not in a format that can be joined');
   if (vt.streams.some((s) => AUDIO_TYPES.includes(s.type))) throw new Error('The video already has sound');
 
@@ -83,30 +86,34 @@ export function mergeTs(videoParts, audioParts) {
   const pmt = withAudio(vt.pmt, { ...track, pid: newPid });
   if (pmt.length > PKT - 5) throw new Error('Stream table too large');
 
-  const out = [];
-  let nextAudio = 0;
-  const state = { cc: 0, next: packed ? firstPts(v[0], vt.streams.find((x) => x.type === 0x1b || x.type === 0x24 || x.type === 0x02)?.pid ?? vt.streams[0].pid) : 0 };
-  const wrap = packed ? (part) => packedToTs(part, newPid, state) : (part) => audioPackets(part, track.pid, newPid);
-  v.forEach((part, i) => {
-    if (part.length % PKT) throw new Error('Not a plain MPEG-TS file');
-    const copy = part.slice();
-    for (let o = 0; o < copy.length; o += PKT) {
-      if (copy[o] === 0x47 && pidOf(copy, o) === vt.pmtPid && copy[o + 1] & 0x40) {
-        const cc = copy[o + 3] & 0x0f; // keep the continuity counter the video file had
-        copy.fill(0xff, o + 4, o + PKT);
-        copy[o + 3] = 0x10 | cc; // payload only
-        copy[o + 4] = 0; // pointer field
-        copy.set(pmt, o + 5);
+  const state = { cc: 0, next: packed ? firstPts(v0, vt.streams.find((x) => x.type === 0x1b || x.type === 0x24 || x.type === 0x02)?.pid ?? vt.streams[0].pid) : 0 };
+  return {
+    video(part) {
+      const copy = new Uint8Array(part).slice();
+      if (copy.length % PKT) throw new Error('Not a plain MPEG-TS file');
+      for (let o = 0; o < copy.length; o += PKT) {
+        if (copy[o] === 0x47 && pidOf(copy, o) === vt.pmtPid && copy[o + 1] & 0x40) {
+          const cc = copy[o + 3] & 0x0f; // keep the continuity counter the video file had
+          copy.fill(0xff, o + 4, o + PKT);
+          copy[o + 3] = 0x10 | cc; // payload only
+          copy[o + 4] = 0; // pointer field
+          copy.set(pmt, o + 5);
+        }
       }
-    }
-    out.push(copy);
-    // Audio pieces keep pace with the video ones.
-    const due = Math.ceil(((i + 1) * a.length) / v.length);
-    for (; nextAudio < due; nextAudio++) out.push(wrap(a[nextAudio]));
-  });
-  return out;
+      return copy;
+    },
+    sound(part) {
+      const b = new Uint8Array(part);
+      return packed ? packedToTs(b, newPid, state) : audioPackets(b, track.pid, newPid);
+    },
+  };
 }
 
+// All pieces in memory at once: arrays of ArrayBuffer in, array of Uint8Array out.
+export function mergeTs(videoParts, soundParts) {
+  const m = tsMerger(videoParts[0], soundParts[0]);
+  return order(videoParts.length, soundParts.length).map(([k, i]) => (k === 'v' ? m.video(videoParts[i]) : m.sound(soundParts[i])));
+}
 
 // --- packed audio: bare AAC (ADTS) files, usually starting with an ID3 tag that carries their start time ---
 const RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];

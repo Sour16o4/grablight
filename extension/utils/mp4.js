@@ -7,6 +7,8 @@
 // ponytail: one video track and one sound track; sidx/styp boxes are dropped; fragments are interleaved
 // a whole piece at a time. Boxes bigger than 4 GB (64-bit sizes) are not supported.
 
+import { order } from './order.js';
+
 const u32 = (b, o) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0;
 const put32 = (b, o, v) => new DataView(b.buffer, b.byteOffset).setUint32(o, v);
 const type = (b, o) => String.fromCharCode(b[o + 4], b[o + 5], b[o + 6], b[o + 7]);
@@ -107,16 +109,16 @@ const concat = (parts) => {
   return out;
 };
 
-// Video fragments with the sound fragments interleaved. Returns the pieces of the final file, init first.
-export function mergeMp4(videoInit, videoFragments, soundInit, soundFragments) {
+// -> { init, sound(fragment) }: the joined init piece (put it first, followed by the video fragments
+// unchanged), and a function that retags each sound fragment (pass them in order).
+export function mp4Merger(videoInit, soundInit) {
   const { init, newId } = mergeInit(videoInit, soundInit);
-  const out = [init];
-  let nextSound = 0;
-  let sequence = 1;
-  videoFragments.forEach((frag, i) => {
-    out.push(new Uint8Array(frag));
-    const due = Math.ceil(((i + 1) * soundFragments.length) / videoFragments.length);
-    for (; nextSound < due; nextSound++) out.push(retag(soundFragments[nextSound], newId, 100000 + sequence++));
-  });
-  return out;
+  let sequence = 0;
+  return { init, sound: (fragment) => retag(fragment, newId, 100000 + ++sequence) };
+}
+
+// All pieces in memory at once. Returns the pieces of the final file, init first.
+export function mergeMp4(videoInit, videoFragments, soundInit, soundFragments) {
+  const m = mp4Merger(videoInit, soundInit);
+  return [m.init, ...order(videoFragments.length, soundFragments.length).map(([k, i]) => (k === 'v' ? new Uint8Array(videoFragments[i]) : m.sound(soundFragments[i])))];
 }
