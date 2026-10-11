@@ -154,13 +154,13 @@ export default function Page() {
 
         <section id="install" className="mx-auto max-w-7xl px-6 pb-28">
           <div className="glass grid gap-12 p-8 md:p-12 lg:grid-cols-[1fr_1.3fr]">
-            <div>
+            <div className="min-w-0">
               <h2 className="text-4xl font-semibold leading-[1.05] tracking-tighter md:text-5xl">Install it in Chrome.</h2>
               <p className="mt-4 max-w-[40ch] leading-relaxed text-dim">
                 Grablight isn’t on the Chrome Web Store yet, so you load it yourself. It needs Chrome 116 or newer and Node.js 20.19 or newer.
               </p>
             </div>
-            <div>
+            <div className="min-w-0">
               <pre className="overflow-x-auto rounded-[16px] bg-olive p-6 font-mono text-sm leading-8 text-bg">
 {`git clone https://github.com/Sour16o4/grablight.git
 cd grablight/extension
