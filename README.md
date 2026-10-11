@@ -4,6 +4,13 @@ A Chrome extension that finds the files and videos on the page you're on and dow
 
 Before you click, every file gets a light: green means it will download, yellow means it may fail, and red means it can't (with the reason). The toolbar icon shows the same light for the whole page.
 
+## The website
+
+<p>
+  <img src="docs/screenshots/desktop.png" alt="Grablight website on desktop" width="640">
+  <img src="docs/screenshots/phone.png" alt="Grablight website on a phone" width="190">
+</p>
+
 ## Folders
 
 - `extension/` — the extension (WXT + React + Tailwind, plain JavaScript)
