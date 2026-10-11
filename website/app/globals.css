@@ -1,33 +1,149 @@
 @import "tailwindcss";
 
-@theme {
-  --font-sans: 'Overpass Variable', ui-sans-serif, system-ui, sans-serif;
-  --color-asphalt: #1b1d1f;
-  --color-concrete: #e9eae6;
-  --color-paper: #f7f7f4;
-  --color-go: #12b76a;
-  --color-caution: #f5a524;
-  --color-stop: #e5484d;
+/* One palette: soft white, sage green, deep olive. The lens colours (green, amber, red) are the
+   only other chroma, kept small, as extension/DESIGN.md asks. */
+:root {
+  --bg: #e8e9df;
+  --sage: #a9b887;
+  --olive: #2e3d28;
+  --dim: color-mix(in srgb, var(--olive) 76%, var(--bg));
+  --line: color-mix(in srgb, var(--olive) 18%, var(--bg));
+
+  --lens-green: #3e9a6d;
+  --lens-amber: #c48a1e;
+  --lens-red: #c4524b;
 }
 
+@theme inline {
+  --font-sans: 'Geist Mono Variable', ui-monospace, monospace;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+  --font-display: 'Pixelify Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --color-bg: var(--bg);
+  --color-sage: var(--sage);
+  --color-olive: var(--olive);
+  --color-dim: var(--dim);
+  --color-line: var(--line);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Headlines are pixel letters: no tight tracking, which would crush them. Unlayered, so it beats utilities. */
+h1, h2, h3, .wordmark {
+  font-family: var(--font-display);
+  letter-spacing: 0;
+  font-variant-ligatures: none; /* Pixelify's fi and fl ligatures draw the wrong glyphs */
+  font-feature-settings: 'liga' 0, 'clig' 0;
+}
 body {
-  background: var(--color-concrete);
-  color: var(--color-asphalt);
+  background: var(--bg);
+  color: var(--olive);
 }
-
 :focus-visible {
-  outline: 3px solid var(--color-asphalt);
+  outline: 3px solid var(--olive);
   outline-offset: 3px;
 }
 
-/* The one animated moment: the demo popup's lights switch on, top to bottom, once. */
-@keyframes switch-on {
-  from { background-color: #b9bbb5; }
+/* Radius scale: 12 for controls, 16 for media inside a panel, 28 for panels. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  border-radius: 12px;
+  padding: 0.85rem 1.5rem;
+  font-weight: 600;
+  transition: transform 0.15s;
 }
-.light {
-  animation: switch-on 0.5s ease-out backwards;
-  animation-delay: calc(0.5s + var(--i) * 0.6s);
+.btn:active {
+  transform: translateY(1px);
 }
+.btn-solid {
+  background: var(--olive);
+  color: var(--bg);
+}
+.btn-glass {
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  border: 1px solid rgb(255 255 255 / 0.7);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* Frosted glass: a web approximation, with a solid fallback when transparency is reduced. */
+.glass {
+  background: color-mix(in srgb, var(--bg) 58%, transparent);
+  border: 1px solid rgb(255 255 255 / 0.75);
+  border-radius: 28px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 24px 60px rgb(46 61 40 / 0.16);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .btn-glass {
+    background: var(--bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* The lens: a disc with a same-hue ring at 22% (a ring, not a glow). */
+.lens {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--c);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent);
+}
+.lens-green { --c: var(--lens-green); }
+.lens-amber { --c: var(--lens-amber); }
+.lens-red { --c: var(--lens-red); }
+
+/* Motion: blobs drift, rows rise, lenses switch on. Transform and opacity only. */
+@keyframes drift-a {
+  50% { transform: translate(60px, 40px) scale(1.12); }
+}
+@keyframes drift-b {
+  50% { transform: translate(-70px, 30px) scale(0.92); }
+}
+.drift-a { animation: drift-a 16s ease-in-out infinite; }
+.drift-b { animation: drift-b 20s ease-in-out infinite; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+}
+.rise {
+  animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 24ms);
+}
+@keyframes shimmer {
+  from { opacity: 0.4; }
+  to { opacity: 0.9; }
+}
+.skeleton {
+  animation: shimmer 0.9s ease-in-out infinite alternate;
+  background: color-mix(in srgb, var(--olive) 10%, transparent);
+  border-radius: 12px;
+}
+@keyframes fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.progress {
+  transform-origin: left;
+  animation: fill 1.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes lens-on {
+  from { background-color: var(--line); box-shadow: 0 0 0 3px transparent; }
+}
+.lens-on {
+  animation: lens-on 0.5s ease-out backwards;
+  animation-delay: calc(0.35s + var(--i, 0) * 0.18s);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .light { animation: none; }
+  html { scroll-behavior: auto; }
+  .drift-a, .drift-b, .rise, .skeleton, .lens-on { animation: none; }
+  .progress { animation-duration: 0.01s; }
 }
