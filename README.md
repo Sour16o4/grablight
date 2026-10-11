@@ -45,7 +45,7 @@ The install steps on the site tell visitors to `git clone` this repo, so make th
 - A Download button over any video or large image you hover, with its light. If the page doesn't say which file a video plays (e.g. `blob:` players) and several are found, the light is yellow, not green. Turn it off in Settings.
 - Hovering the toolbar icon lists what was found, e.g. "3 images, 1 video".
 - Streams with several qualities open a quality picker in the popup, with an estimated size per quality. Choose a default in Settings.
-- HLS video streams (`.m3u8`), including AES-128 encryption, are joined into one `.ts` (or `.mp4`) file, including byte-range playlists. When the sound is a separate track (TS, bare `.aac`, or fMP4 pieces) it is joined into the video; if it can't be, the row turns amber and the download says it has no sound. Pieces wait in the browser's private disk storage, so a stream can be larger than memory.
+- HLS video streams (`.m3u8`), including AES-128 encryption, are joined into one `.ts` (or `.mp4`) file, including byte-range playlists. When the sound is a separate track (TS, bare `.aac` or `.mp3`, or fMP4 pieces) it is joined into the video; if it can't be, the row turns amber and the download says it has no sound. Pieces wait in the browser's private disk storage, so a stream can be larger than memory.
 - Playlists named `master.m3u8` show their folder (`show-2/master.m3u8`) so several in one list can be told apart.
 - Settings: hide the video button, default stream quality, sites to never take video or audio from.
 - Design: `extension/DESIGN.md` describes the dark popup and settings look; the colours and fonts live in `extension/utils/theme.css`.
@@ -54,7 +54,7 @@ The install steps on the site tell visitors to `git clone` this repo, so make th
 
 - Video and audio from YouTube, Netflix, Prime Video, Disney+, Hotstar and Spotify (edit `BLOCKED` in `extension/utils/light.js`).
 - DRM-protected streams, live streams and DASH (`.mpd`).
-- Streams are saved as the raw joined pieces, with no conversion to a clean `.mp4`. The size limit is a third of the browser's free storage quota, at most 40 GB. Sound that is packed differently from its video (TS with fMP4), packed MP3 or AC-3 is saved without sound (the popup says so).
+- Streams are saved as the raw joined pieces, with no conversion to a clean `.mp4`. The size limit is a third of the browser's free storage quota, at most 40 GB. Sound that is packed differently from its video (TS with fMP4) or is packed AC-3 is saved without sound (the popup says so).
 
 ## Checks
 

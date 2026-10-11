@@ -261,8 +261,9 @@ export default defineBackground(() => {
     }
     if (change.status === 'complete') {
       analyze(tabId);
-      // Many pages fill in their file lists after loading (GitHub releases, infinite lists): look again once.
+      // Many pages fill in their file lists after loading (GitHub releases, infinite lists): look again twice.
       setTimeout(() => analyze(tabId), 3000);
+      setTimeout(() => analyze(tabId), 10000);
     }
   });
   browser.downloads.onChanged.addListener((d) => {

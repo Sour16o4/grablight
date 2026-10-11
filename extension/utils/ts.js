@@ -76,7 +76,7 @@ export function tsMerger(firstVideo, firstSound) {
   const a0 = new Uint8Array(firstSound);
   const vt = readTables(v0);
   const packed = isPacked(a0);
-  const track = packed ? { type: 0x0f, info: [], pid: 0 } : readTables(a0).streams.find((s) => AUDIO_TYPES.includes(s.type));
+  const track = packed ? { type: readPacked(a0).type, info: [], pid: 0 } : readTables(a0).streams.find((s) => AUDIO_TYPES.includes(s.type));
   if (!track) throw new Error('The sound track is not in a format that can be joined');
   if (vt.streams.some((s) => AUDIO_TYPES.includes(s.type))) throw new Error('The video already has sound');
 
@@ -115,11 +115,39 @@ export function mergeTs(videoParts, soundParts) {
   return order(videoParts.length, soundParts.length).map(([k, i]) => (k === 'v' ? m.video(videoParts[i]) : m.sound(soundParts[i])));
 }
 
-// --- packed audio: bare AAC (ADTS) files, usually starting with an ID3 tag that carries their start time ---
+// --- packed audio: bare AAC (ADTS) or MP3 files, usually starting with an ID3 tag that carries their start time ---
 const RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
-const isPacked = (b) => (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) || (b[0] === 0xff && (b[1] & 0xf6) === 0xf0);
+const MPEG_RATES = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] }; // by version bits: MPEG1, MPEG2, MPEG2.5
+const MPEG_KBPS = {
+  '3-1': [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320], // MPEG1 layer III
+  '3-2': [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384], // MPEG1 layer II
+  low: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160], // MPEG2 / 2.5, layers II and III
+};
+const isAdts = (b, p) => b[p] === 0xff && (b[p + 1] & 0xf6) === 0xf0;
+const isMpegAudio = (b, p) => b[p] === 0xff && (b[p + 1] & 0xe0) === 0xe0 && ((b[p + 1] >> 3) & 3) !== 1 && [1, 2].includes((b[p + 1] >> 1) & 3);
+const isPacked = (b) => (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) || isAdts(b, 0) || isMpegAudio(b, 0);
 
-// -> { start: first PTS in 90kHz ticks or null, frames: [{ at, len, rate }] }
+// One audio frame starting at b[p]: { len, rate, samples, type } or null. type is the TS stream type.
+function frameAt(b, p) {
+  if (isAdts(b, p)) {
+    const len = ((b[p + 3] & 3) << 11) | (b[p + 4] << 3) | (b[p + 5] >> 5);
+    const rate = RATES[(b[p + 2] >> 2) & 15];
+    return len >= 7 && rate ? { len, rate, samples: 1024, type: 0x0f } : null;
+  }
+  if (isMpegAudio(b, p)) {
+    const version = (b[p + 1] >> 3) & 3;
+    const layer = 4 - ((b[p + 1] >> 1) & 3); // 3 = layer III, 2 = layer II
+    const rate = MPEG_RATES[version]?.[(b[p + 2] >> 2) & 3];
+    const kbps = (version === 3 ? MPEG_KBPS[`3-${4 - layer}`] : MPEG_KBPS.low)?.[b[p + 2] >> 4];
+    if (!rate || !kbps) return null;
+    const samples = version === 3 || layer === 2 ? 1152 : 576;
+    const len = Math.floor(((samples / 8) * kbps * 1000) / rate) + ((b[p + 2] >> 1) & 1);
+    return { len, rate, samples, type: version === 3 ? 0x03 : 0x04 };
+  }
+  return null;
+}
+
+// -> { start: first PTS in 90kHz ticks or null, frames: [{ at, len, rate, samples }], type: the TS stream type }
 function readPacked(b) {
   let p = 0;
   let start = null;
@@ -136,15 +164,9 @@ function readPacked(b) {
     p += 10 + size;
   }
   const frames = [];
-  while (p + 7 <= b.length && b[p] === 0xff && (b[p + 1] & 0xf0) === 0xf0) {
-    const len = ((b[p + 3] & 3) << 11) | (b[p + 4] << 3) | (b[p + 5] >> 5);
-    const rate = RATES[(b[p + 2] >> 2) & 15];
-    if (len < 7 || !rate || p + len > b.length) break;
-    frames.push({ at: p, len, rate });
-    p += len;
-  }
+  for (let f; p + 4 <= b.length && (f = frameAt(b, p)) && p + f.len <= b.length; p += f.len) frames.push({ at: p, ...f });
   if (!frames.length) throw new Error('The sound track is not in a format that can be joined');
-  return { start, frames };
+  return { start, frames, type: frames[0].type };
 }
 
 // The PTS (90kHz) of the first video picture, to line packed audio up when it carries no start time.
@@ -197,7 +219,7 @@ function packedToTs(part, pid, state) {
       pkt.set(chunk, 4 + pad);
       out.push(pkt);
     }
-    for (let k = i; k < j; k++) t += (1024 / frames[k].rate) * 90000;
+    for (let k = i; k < j; k++) t += (frames[k].samples / frames[k].rate) * 90000;
     i = j;
   }
   state.next = t;
