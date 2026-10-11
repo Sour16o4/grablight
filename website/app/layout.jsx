@@ -1,5 +1,6 @@
-// Overpass comes from an npm package, so building the site never needs the network.
-import '@fontsource-variable/overpass';
+// Fonts come from npm packages, so building the site never needs the network.
+import '@fontsource-variable/pixelify-sans';
+import '@fontsource-variable/geist-mono';
 import './globals.css';
 
 export const metadata = {
