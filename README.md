@@ -82,3 +82,7 @@ These cover the light rules, HLS parsing, decryption, stopping and retries, join
 - [x] Phase 6: HLS streams with encryption
 - [x] Phase 7: site adapters (`extension/utils/scan.js`: add a site by adding one object to `ADAPTERS`)
 - [x] Phase 8: history, settings and website
+
+## License
+
+MIT. See [LICENSE](LICENSE).
