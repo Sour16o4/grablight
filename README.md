@@ -6,7 +6,7 @@ Before you click, every file gets a light: green means it will download, yellow 
 
 ## The website
 
-Live at [grablight.vercel.app](https://grablight.vercel.app).
+Live at [grablight.vercel.app](https://grablight.vercel.app). The screenshots below are taken from the live site.
 
 <p>
   <img src="docs/screenshots/desktop.png" alt="Grablight website on desktop" width="640">
@@ -16,7 +16,7 @@ Live at [grablight.vercel.app](https://grablight.vercel.app).
 ## Folders
 
 - `extension/` — the extension (WXT + React + Tailwind, plain JavaScript)
-- `website/` — the companion Next.js site (`cd website && npm install && npm run dev`, opens at http://localhost:3001)
+- `website/` — the companion Next.js site, deployed on Vercel at [grablight.vercel.app](https://grablight.vercel.app). To run it locally: `cd website && npm install && npm run dev` (http://localhost:3001)
 
 ## Run it locally
 
