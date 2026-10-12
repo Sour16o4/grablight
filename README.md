@@ -6,6 +6,8 @@ Before you click, every file gets a light: green means it will download, yellow 
 
 ## The website
 
+Live at [grablight.vercel.app](https://grablight.vercel.app).
+
 <p>
   <img src="docs/screenshots/desktop.png" alt="Grablight website on desktop" width="640">
   <img src="docs/screenshots/phone.png" alt="Grablight website on a phone" width="190">
