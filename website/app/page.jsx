@@ -62,7 +62,7 @@ export default function Page() {
         </header>
 
         <section id="top" className="mx-auto grid max-w-7xl items-center gap-14 px-6 pb-24 pt-12 lg:grid-cols-[1.15fr_1fr] lg:pt-16">
-          <div>
+          <div className="min-w-0">
             <h1 className="max-w-[18ch] text-4xl font-semibold leading-[1.08] sm:text-5xl lg:text-[56px]">
               Downloads, without the guessing.
             </h1>
@@ -74,7 +74,7 @@ export default function Page() {
             </div>
           </div>
 
-          <div className="relative">
+          <div className="relative min-w-0">
             <ScanDemo />
           </div>
         </section>
